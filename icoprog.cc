@@ -34,7 +34,7 @@ int main()
 	digitalWrite(RPI_ICE_CLK, HIGH);
 
 	// select SRAM programming mode
-	digitalWrite(LOAD_FROM_FLASH, HIGH);
+	digitalWrite(LOAD_FROM_FLASH, LOW);
 	digitalWrite(RPI_ICE_SELECT, LOW);
 	digitalWrite(RPI_ICE_CS, LOW);
 	usleep(100);
