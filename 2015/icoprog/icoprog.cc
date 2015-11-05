@@ -82,6 +82,7 @@ void prog_bitstream()
 void send_mode()
 {
 	digitalWrite(RASPI_DIR, HIGH);
+	usleep(1);
 
 	pinMode(RASPI_D8, OUTPUT);
 	pinMode(RASPI_D7, OUTPUT);
@@ -106,9 +107,8 @@ void recv_mode()
 	pinMode(RASPI_D1, INPUT);
 	pinMode(RASPI_D0, INPUT);
 
-	// set twice for extra delay
 	digitalWrite(RASPI_DIR, LOW);
-	digitalWrite(RASPI_DIR, LOW);
+	usleep(1);
 }
 
 void send_word(int v)
@@ -122,13 +122,16 @@ void send_word(int v)
 	digitalWrite(RASPI_D2, (v & 0x004) ? HIGH : LOW);
 	digitalWrite(RASPI_D1, (v & 0x002) ? HIGH : LOW);
 	digitalWrite(RASPI_D0, (v & 0x001) ? HIGH : LOW);
+
 	digitalWrite(RASPI_CLK, HIGH);
 	digitalWrite(RASPI_CLK, LOW);
+	usleep(1);
 }
 
 int recv_word()
 {
 	int v = 0;
+
 	if (digitalRead(RASPI_D8) == HIGH) v |= 0x100;
 	if (digitalRead(RASPI_D7) == HIGH) v |= 0x080;
 	if (digitalRead(RASPI_D6) == HIGH) v |= 0x040;
@@ -138,8 +141,11 @@ int recv_word()
 	if (digitalRead(RASPI_D2) == HIGH) v |= 0x004;
 	if (digitalRead(RASPI_D1) == HIGH) v |= 0x002;
 	if (digitalRead(RASPI_D0) == HIGH) v |= 0x001;
+
 	digitalWrite(RASPI_CLK, HIGH);
 	digitalWrite(RASPI_CLK, LOW);
+	usleep(1);
+
 	return v;
 }
 
@@ -177,12 +183,17 @@ void test_link()
 		printf("\n");
 
 		for (int i = 0; i < 20; i++)
-			printf("%5s", data_in[i] == data_exp[i] ? "ok" : "ERR");
+			if (data_in[i] == data_exp[i])
+				printf("%5s", "ok");
+			else
+				printf(" E%3d", data_exp[i]);
 		printf("\n");
 
 		for (int i = 0; i < 20; i++)
-			if (data_in[i] != data_exp[i])
+			if (data_in[i] != data_exp[i]) {
+				printf("Test(s) failed!\n");
 				exit(1);
+			}
 	}
 
 	printf("All tests passed.\n");
