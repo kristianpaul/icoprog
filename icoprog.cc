@@ -113,6 +113,8 @@ void recv_mode()
 
 void send_word(int v)
 {
+	// printf("<%03x>", v);
+
 	digitalWrite(RASPI_D8, (v & 0x100) ? HIGH : LOW);
 	digitalWrite(RASPI_D7, (v & 0x080) ? HIGH : LOW);
 	digitalWrite(RASPI_D6, (v & 0x040) ? HIGH : LOW);
@@ -123,6 +125,7 @@ void send_word(int v)
 	digitalWrite(RASPI_D1, (v & 0x002) ? HIGH : LOW);
 	digitalWrite(RASPI_D0, (v & 0x001) ? HIGH : LOW);
 
+	usleep(1);
 	digitalWrite(RASPI_CLK, HIGH);
 	digitalWrite(RASPI_CLK, LOW);
 	usleep(1);
@@ -142,16 +145,24 @@ int recv_word()
 	if (digitalRead(RASPI_D1) == HIGH) v |= 0x002;
 	if (digitalRead(RASPI_D0) == HIGH) v |= 0x001;
 
+	usleep(1);
 	digitalWrite(RASPI_CLK, HIGH);
 	digitalWrite(RASPI_CLK, LOW);
 	usleep(1);
 
+	// printf("[%03x]", v);
 	return v;
 }
 
 void test_link()
 {
 	send_mode();
+	for (int i = 0; i < 32; i++)
+		send_word(0x1ff);
+
+	recv_mode();
+	while (recv_word() != 0x1ff) { }
+
 	send_word(0x100);
 
 	srandom(time(NULL));
@@ -160,23 +171,25 @@ void test_link()
 	{
 		int data_out[20], data_in[20], data_exp[20];
 
-		for (int i = 0; i < 20; i++)
-		{
-			data_out[i] = random() & 255;
-			data_exp[i] = (((data_out[i] << 5) + data_out[i]) ^ 7) & 511;
-
-			send_mode();
-			send_word(data_out[i]);
-
-			recv_mode();
-			data_in[i] = recv_word();
-		}
-
 		printf("Round %d:\n", k);
+
+		send_mode();
+		for (int i = 0; i < 20; i++) {
+			data_out[i] = random() & 255;
+			data_exp[i] = (((data_out[i] << 5) + data_out[i]) ^ 7) & 255;
+			send_word(data_out[i]);
+		}
 
 		for (int i = 0; i < 20; i++)
 			printf("%5d", data_out[i]);
 		printf("\n");
+
+		recv_mode();
+		for (int i = 0; i < 20; i++) {
+			do {
+				data_in[i] = recv_word();
+			} while (data_in[i] == 0x1ff || data_in[i] == 0x1fe);
+		}
 
 		for (int i = 0; i < 20; i++)
 			printf("%5d", data_in[i]);
@@ -212,7 +225,8 @@ void prog_image(int command)
 		send_word(byte);
 	}
 
-	send_word(0x100);
+	for (int i = 0; i < 32; i++)
+		send_word(0x1ff);
 }
 
 void reset_inout()
