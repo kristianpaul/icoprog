@@ -27,7 +27,7 @@
 #define RASPI_DIR 28 // PIN 38, GPIO.28
 #define RASPI_CLK 29 // PIN 40, GPIO.29
 
-void prog_bitstream()
+void prog_bitstream(bool reset_only = false)
 {
 	pinMode(RPI_ICE_CLK,     OUTPUT);
 	pinMode(RPI_ICE_MOSI,    OUTPUT);
@@ -56,6 +56,9 @@ void prog_bitstream()
 
 	printf("cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
 
+	if (reset_only)
+		return;
+
 	printf("programming..\n");
 
 	while (1)
@@ -79,41 +82,36 @@ void prog_bitstream()
 	printf("cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
 }
 
-void send_mode()
+char current_send_recv_mode = 0;
+
+void epsilon_sleep()
 {
-	digitalWrite(RASPI_DIR, HIGH);
-	usleep(1);
-
-	pinMode(RASPI_D8, OUTPUT);
-	pinMode(RASPI_D7, OUTPUT);
-	pinMode(RASPI_D6, OUTPUT);
-	pinMode(RASPI_D5, OUTPUT);
-	pinMode(RASPI_D4, OUTPUT);
-	pinMode(RASPI_D3, OUTPUT);
-	pinMode(RASPI_D2, OUTPUT);
-	pinMode(RASPI_D1, OUTPUT);
-	pinMode(RASPI_D0, OUTPUT);
-}
-
-void recv_mode()
-{
-	pinMode(RASPI_D8, INPUT);
-	pinMode(RASPI_D7, INPUT);
-	pinMode(RASPI_D6, INPUT);
-	pinMode(RASPI_D5, INPUT);
-	pinMode(RASPI_D4, INPUT);
-	pinMode(RASPI_D3, INPUT);
-	pinMode(RASPI_D2, INPUT);
-	pinMode(RASPI_D1, INPUT);
-	pinMode(RASPI_D0, INPUT);
-
-	digitalWrite(RASPI_DIR, LOW);
-	usleep(1);
+	for (int i = 0; i < 1000; i++)
+		asm volatile ("");
 }
 
 void send_word(int v)
 {
+	if (current_send_recv_mode != 's')
+	{
+		digitalWrite(RASPI_DIR, HIGH);
+		epsilon_sleep();
+
+		pinMode(RASPI_D8, OUTPUT);
+		pinMode(RASPI_D7, OUTPUT);
+		pinMode(RASPI_D6, OUTPUT);
+		pinMode(RASPI_D5, OUTPUT);
+		pinMode(RASPI_D4, OUTPUT);
+		pinMode(RASPI_D3, OUTPUT);
+		pinMode(RASPI_D2, OUTPUT);
+		pinMode(RASPI_D1, OUTPUT);
+		pinMode(RASPI_D0, OUTPUT);
+
+		current_send_recv_mode = 's';
+	}
+
 	// printf("<%03x>", v);
+	// fflush(stdout);
 
 	digitalWrite(RASPI_D8, (v & 0x100) ? HIGH : LOW);
 	digitalWrite(RASPI_D7, (v & 0x080) ? HIGH : LOW);
@@ -125,14 +123,33 @@ void send_word(int v)
 	digitalWrite(RASPI_D1, (v & 0x002) ? HIGH : LOW);
 	digitalWrite(RASPI_D0, (v & 0x001) ? HIGH : LOW);
 
-	usleep(1);
+	epsilon_sleep();
 	digitalWrite(RASPI_CLK, HIGH);
+	epsilon_sleep();
 	digitalWrite(RASPI_CLK, LOW);
-	usleep(1);
+	epsilon_sleep();
 }
 
-int recv_word()
+int recv_word(int timeout = 0)
 {
+	if (current_send_recv_mode != 'r')
+	{
+		pinMode(RASPI_D8, INPUT);
+		pinMode(RASPI_D7, INPUT);
+		pinMode(RASPI_D6, INPUT);
+		pinMode(RASPI_D5, INPUT);
+		pinMode(RASPI_D4, INPUT);
+		pinMode(RASPI_D3, INPUT);
+		pinMode(RASPI_D2, INPUT);
+		pinMode(RASPI_D1, INPUT);
+		pinMode(RASPI_D0, INPUT);
+
+		digitalWrite(RASPI_DIR, LOW);
+		epsilon_sleep();
+
+		current_send_recv_mode = 'r';
+	}
+
 	int v = 0;
 
 	if (digitalRead(RASPI_D8) == HIGH) v |= 0x100;
@@ -145,24 +162,38 @@ int recv_word()
 	if (digitalRead(RASPI_D1) == HIGH) v |= 0x002;
 	if (digitalRead(RASPI_D0) == HIGH) v |= 0x001;
 
-	usleep(1);
+	epsilon_sleep();
 	digitalWrite(RASPI_CLK, HIGH);
+	epsilon_sleep();
 	digitalWrite(RASPI_CLK, LOW);
-	usleep(1);
+	epsilon_sleep();
 
 	// printf("[%03x]", v);
+	// fflush(stdout);
+
+	if (timeout && (v == 0x1ff || v == 0x1fe)) {
+		if (timeout == 1) {
+			printf("Timeout!\n");
+			exit(1);
+		}
+		return recv_word(timeout - 1);
+	}
+
 	return v;
+}
+
+void link_sync()
+{
+	while (recv_word() != 0x1ff) { }
+
+	send_word(0x1ff);
+
+	while (recv_word() != 0x1ff) { }
 }
 
 void test_link()
 {
-	send_mode();
-	for (int i = 0; i < 32; i++)
-		send_word(0x1ff);
-
-	recv_mode();
-	while (recv_word() != 0x1ff) { }
-
+	link_sync();
 	send_word(0x100);
 
 	srandom(time(NULL));
@@ -173,7 +204,6 @@ void test_link()
 
 		printf("Round %d:\n", k);
 
-		send_mode();
 		for (int i = 0; i < 20; i++) {
 			data_out[i] = random() & 255;
 			data_exp[i] = (((data_out[i] << 5) + data_out[i]) ^ 7) & 255;
@@ -184,12 +214,8 @@ void test_link()
 			printf("%5d", data_out[i]);
 		printf("\n");
 
-		recv_mode();
-		for (int i = 0; i < 20; i++) {
-			do {
-				data_in[i] = recv_word();
-			} while (data_in[i] == 0x1ff || data_in[i] == 0x1fe);
-		}
+		for (int i = 0; i < 20; i++)
+			data_in[i] = recv_word(64);
 
 		for (int i = 0; i < 20; i++)
 			printf("%5d", data_in[i]);
@@ -214,7 +240,7 @@ void test_link()
 
 void prog_image(int command)
 {
-	send_mode();
+	link_sync();
 	send_word(0x100 + command);
 
 	while (1)
@@ -225,8 +251,7 @@ void prog_image(int command)
 		send_word(byte);
 	}
 
-	for (int i = 0; i < 32; i++)
-		send_word(0x1ff);
+	link_sync();
 }
 
 void reset_inout()
@@ -255,6 +280,8 @@ void reset_inout()
 
 	digitalWrite(RASPI_DIR, LOW);
 	digitalWrite(RASPI_CLK, LOW);
+
+	current_send_recv_mode = 0;
 }
 
 int main(int argc, char **argv)
@@ -264,6 +291,13 @@ int main(int argc, char **argv)
 		wiringPiSetup();
 		reset_inout();
 		prog_bitstream();
+		reset_inout();
+	}
+	else if (argc == 2 && !strcmp(argv[1], "-r"))
+	{
+		wiringPiSetup();
+		reset_inout();
+		prog_bitstream(true);
 		reset_inout();
 	}
 	else if (argc == 2 && !strcmp(argv[1], "-0"))
@@ -286,6 +320,9 @@ int main(int argc, char **argv)
 		printf("\n");
 		printf("Programming FPGA bit stream:\n");
 		printf("    %s < data.bin\n", argv[0]);
+		printf("\n");
+		printf("Resetting FPGA:\n");
+		printf("    %s -r\n", argv[0]);
 		printf("\n");
 		printf("Testing bit-parallel link:\n");
 		printf("    %s -0\n", argv[0]);
