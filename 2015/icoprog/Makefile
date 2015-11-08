@@ -5,6 +5,9 @@ icoprog: icoprog.cc
 test: icoprog
 	sudo ./icoprog < example.bin
 
+install:
+	sudo install icoprog /usr/local/bin/
+	sudo chmod u+s /usr/local/bin/icoprog
 clean:
 	rm -f icoprog
 
