@@ -27,6 +27,10 @@
 #define RASPI_DIR 28 // PIN 38, GPIO.28
 #define RASPI_CLK 29 // PIN 40, GPIO.29
 
+bool verbose = false;
+char current_send_recv_mode = 0;
+int current_recv_ep = -1;
+
 void prog_bitstream(bool reset_only = false)
 {
 	pinMode(RPI_ICE_CLK,     OUTPUT);
@@ -36,7 +40,7 @@ void prog_bitstream(bool reset_only = false)
 	pinMode(RPI_ICE_CS,      OUTPUT);
 	pinMode(RPI_ICE_SELECT,  OUTPUT);
 
-	printf("reset..\n");
+	fprintf(stderr, "reset..\n");
 
 	// enable reset
 	digitalWrite(RPI_ICE_CRESET, LOW);
@@ -54,12 +58,12 @@ void prog_bitstream(bool reset_only = false)
 	digitalWrite(RPI_ICE_CRESET, HIGH);
 	usleep(2000);
 
-	printf("cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
+	fprintf(stderr, "cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
 
 	if (reset_only)
 		return;
 
-	printf("programming..\n");
+	fprintf(stderr, "programming..\n");
 
 	while (1)
 	{
@@ -79,10 +83,8 @@ void prog_bitstream(bool reset_only = false)
 	}
 
 	usleep(2000);
-	printf("cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
+	fprintf(stderr, "cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
 }
-
-char current_send_recv_mode = 0;
 
 void epsilon_sleep()
 {
@@ -110,8 +112,10 @@ void send_word(int v)
 		current_send_recv_mode = 's';
 	}
 
-	// printf("<%03x>", v);
-	// fflush(stdout);
+	if (verbose) {
+		fprintf(stderr, "<%03x>", v);
+		fflush(stderr);
+	}
 
 	digitalWrite(RASPI_D8, (v & 0x100) ? HIGH : LOW);
 	digitalWrite(RASPI_D7, (v & 0x080) ? HIGH : LOW);
@@ -168,12 +172,17 @@ int recv_word(int timeout = 0)
 	digitalWrite(RASPI_CLK, LOW);
 	epsilon_sleep();
 
-	// printf("[%03x]", v);
-	// fflush(stdout);
+	if (verbose) {
+		fprintf(stderr, "[%03x]", v);
+		fflush(stderr);
+	}
+
+	if (v >= 0x100)
+		current_recv_ep = v & 0xff;
 
 	if (timeout && (v == 0x1ff || v == 0x1fe)) {
 		if (timeout == 1) {
-			printf("Timeout!\n");
+			fprintf(stderr, "Timeout!\n");
 			exit(1);
 		}
 		return recv_word(timeout - 1);
@@ -182,13 +191,17 @@ int recv_word(int timeout = 0)
 	return v;
 }
 
-void link_sync()
+void link_sync(int trignum = -1)
 {
 	while (recv_word() != 0x1ff) { }
 
 	send_word(0x1ff);
+	send_word(0x0ff);
 
-	while (recv_word() != 0x1ff) { }
+	if (trignum >= 0)
+		send_word(trignum);
+
+	while (recv_word() == 0x1fe) { }
 }
 
 void test_link()
@@ -202,7 +215,7 @@ void test_link()
 	{
 		int data_out[20], data_in[20], data_exp[20];
 
-		printf("Round %d:\n", k);
+		fprintf(stderr, "Round %d:\n", k);
 
 		for (int i = 0; i < 20; i++) {
 			data_out[i] = random() & 255;
@@ -211,37 +224,39 @@ void test_link()
 		}
 
 		for (int i = 0; i < 20; i++)
-			printf("%5d", data_out[i]);
-		printf("\n");
+			fprintf(stderr, "%5d", data_out[i]);
+		fprintf(stderr, "\n");
 
 		for (int i = 0; i < 20; i++)
-			data_in[i] = recv_word(64);
+			do {
+				data_in[i] = recv_word(64);
+			} while (data_in[i] >= 0x100 || current_recv_ep != 0);
 
 		for (int i = 0; i < 20; i++)
-			printf("%5d", data_in[i]);
-		printf("\n");
+			fprintf(stderr, "%5d", data_in[i]);
+		fprintf(stderr, "\n");
 
 		for (int i = 0; i < 20; i++)
 			if (data_in[i] == data_exp[i])
-				printf("%5s", "ok");
+				fprintf(stderr, "%5s", "ok");
 			else
-				printf(" E%3d", data_exp[i]);
-		printf("\n");
+				fprintf(stderr, " E%3d", data_exp[i]);
+		fprintf(stderr, "\n");
 
 		for (int i = 0; i < 20; i++)
 			if (data_in[i] != data_exp[i]) {
-				printf("Test(s) failed!\n");
+				fprintf(stderr, "Test(s) failed!\n");
 				exit(1);
 			}
 	}
 
-	printf("All tests passed.\n");
+	fprintf(stderr, "All tests passed.\n");
 }
 
-void prog_image(int command)
+void write_endpoint(int epnum, int trignum)
 {
-	link_sync();
-	send_word(0x100 + command);
+	link_sync(trignum);
+	send_word(0x100 + epnum);
 
 	while (1)
 	{
@@ -249,6 +264,21 @@ void prog_image(int command)
 		if (byte < 0 || 255 < byte)
 			break;
 		send_word(byte);
+	}
+
+	link_sync();
+}
+
+void read_endpoint(int epnum, int trignum)
+{
+	link_sync(trignum);
+
+	for (int timeout = 0; timeout < 1000; timeout++) {
+		int byte = recv_word();
+		if (current_recv_ep == epnum && byte < 0x100) {
+			putchar(byte);
+			timeout = 0;
+		}
 	}
 
 	link_sync();
@@ -284,56 +314,101 @@ void reset_inout()
 	current_send_recv_mode = 0;
 }
 
+void help(const char *progname)
+{
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Resetting FPGA:\n");
+	fprintf(stderr, "    %s -R\n", progname);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Programming FPGA bit stream:\n");
+	fprintf(stderr, "    %s -p < data.bin\n", progname);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Testing bit-parallel link:\n");
+	fprintf(stderr, "    %s -T\n", progname);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Writing a file to ep N:\n");
+	fprintf(stderr, "    %s -w N < data.bin\n", progname);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Reading a file from ep N:\n");
+	fprintf(stderr, "    %s -r N > data.bin\n", progname);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Additional options:\n");
+	fprintf(stderr, "    -v      verbose output\n");
+	fprintf(stderr, "    -t N    send trigger N before -w/-r\n");
+	exit(1);
+}
+
 int main(int argc, char **argv)
 {
-	if (argc == 1)
+	int opt, n = -1, t = -1;
+	char mode = 0;
+
+	while ((opt = getopt(argc, argv, "RpTw:r:vt:")) != -1)
 	{
-		wiringPiSetup();
-		reset_inout();
-		prog_bitstream();
-		reset_inout();
+		switch (opt)
+		{
+		case 'w':
+		case 'r':
+			n = atoi(optarg);
+			// fall through
+
+		case 'R':
+		case 'p':
+		case 'T':
+			if (mode)
+				help(argv[0]);
+			mode = opt;
+			break;
+
+		case 'v':
+			verbose = true;
+			break;
+
+		case 't':
+			t = atoi(optarg);
+			break;
+
+		default:
+			help(argv[0]);
+		}
 	}
-	else if (argc == 2 && !strcmp(argv[1], "-r"))
-	{
+
+	if (optind != argc || !mode)
+		help(argv[0]);
+
+	if (mode == 'R') {
 		wiringPiSetup();
 		reset_inout();
 		prog_bitstream(true);
 		reset_inout();
 	}
-	else if (argc == 2 && !strcmp(argv[1], "-0"))
-	{
+	
+	if (mode == 'p') {
+		wiringPiSetup();
+		reset_inout();
+		prog_bitstream();
+		reset_inout();
+	}
+
+	if (mode == 'T') {
 		wiringPiSetup();
 		reset_inout();
 		test_link();
 		reset_inout();
 	}
-	else if (argc == 2 && strlen(argv[1]) == 2 && argv[1][0] == '-' &&
-			'1' <= argv[1][1] && argv[1][1] <= '9')
-	{
+
+	if (mode == 'w') {
 		wiringPiSetup();
 		reset_inout();
-		prog_image(argv[1][1] - '0');
+		write_endpoint(n, t);
 		reset_inout();
 	}
-	else
-	{
-		printf("\n");
-		printf("Programming FPGA bit stream:\n");
-		printf("    %s < data.bin\n", argv[0]);
-		printf("\n");
-		printf("Resetting FPGA:\n");
-		printf("    %s -r\n", argv[0]);
-		printf("\n");
-		printf("Testing bit-parallel link:\n");
-		printf("    %s -0\n", argv[0]);
-		printf("\n");
-		printf("Updating user image 1..9:\n");
-		printf("    %s -1 < data.bin\n", argv[0]);
-		printf("    %s -2 < data.bin\n", argv[0]);
-		printf("    ...\n");
-		printf("    %s -9 < data.bin\n", argv[0]);
-		printf("\n");
-		return 1;
+
+	if (mode == 'r') {
+		wiringPiSetup();
+		reset_inout();
+		read_endpoint(n, t);
+		reset_inout();
 	}
 
 	return 0;
