@@ -284,6 +284,43 @@ void read_endpoint(int epnum, int trignum)
 	link_sync();
 }
 
+void read_dbgvcd(int nbits)
+{
+	link_sync(1);
+
+	printf("$var event 1 ! clock $end\n");
+	for (int i = 0; i < nbits; i++)
+		printf("$var wire 1 n%d debug_%d $end\n", i, i);
+	printf("$enddefinitions $end\n");
+
+	int nbytes = (nbits+7) / 8;
+	int clock_cnt = 0;
+	int byte_cnt = 0;
+
+	for (int timeout = 0; timeout < 1000; timeout++)
+	{
+		int byte = recv_word();
+
+		if (current_recv_ep != 1 || byte >= 0x100)
+			continue;
+
+		if (byte_cnt == 0)
+			printf("#%d\n1!\n", clock_cnt);
+
+		for (int bit = 0;  8*byte_cnt + bit < nbits && bit < 8; bit++)
+			printf("b%d n%d\n", (byte >> bit) & 1, 8*byte_cnt + bit);
+
+		if (++byte_cnt == nbytes) {
+			byte_cnt = 0;
+			clock_cnt++;
+		}
+
+		timeout = 0;
+	}
+
+	link_sync();
+}
+
 void reset_inout()
 {
 	pinMode(RPI_ICE_CLK,     INPUT);
@@ -323,7 +360,7 @@ void help(const char *progname)
 	fprintf(stderr, "Programming FPGA bit stream:\n");
 	fprintf(stderr, "    %s -p < data.bin\n", progname);
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Testing bit-parallel link:\n");
+	fprintf(stderr, "Testing bit-parallel link (using ep0):\n");
 	fprintf(stderr, "    %s -T\n", progname);
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Writing a file to ep N:\n");
@@ -331,6 +368,10 @@ void help(const char *progname)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Reading a file from ep N:\n");
 	fprintf(stderr, "    %s -r N > data.bin\n", progname);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Dumping a VCD file (from ep1, using trig1)\n");
+	fprintf(stderr, "  with a debugger core with N bits width:\n");
+	fprintf(stderr, "    %s -V N > dbg_trace.vcd\n", progname);
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Additional options:\n");
 	fprintf(stderr, "    -v      verbose output\n");
@@ -343,12 +384,13 @@ int main(int argc, char **argv)
 	int opt, n = -1, t = -1;
 	char mode = 0;
 
-	while ((opt = getopt(argc, argv, "RpTw:r:vt:")) != -1)
+	while ((opt = getopt(argc, argv, "RpTw:r:vt:V:")) != -1)
 	{
 		switch (opt)
 		{
 		case 'w':
 		case 'r':
+		case 'V':
 			n = atoi(optarg);
 			// fall through
 
@@ -408,6 +450,13 @@ int main(int argc, char **argv)
 		wiringPiSetup();
 		reset_inout();
 		read_endpoint(n, t);
+		reset_inout();
+	}
+
+	if (mode == 'V') {
+		wiringPiSetup();
+		reset_inout();
+		read_dbgvcd(n);
 		reset_inout();
 	}
 
