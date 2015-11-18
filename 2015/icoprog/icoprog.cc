@@ -12,7 +12,7 @@
 #define RPI_ICE_MISO    22 // PIN 31, GPIO.22
 #define LOAD_FROM_FLASH 23 // PIN 33, GPIO.23
 #define RPI_ICE_CRESET  25 // PIN 37, GPIO.25
-#define RPI_ICE_CS      11 // PIN 26, CE1
+#define RPI_ICE_CS      10 // PIN 24, CE0
 #define RPI_ICE_SELECT  26 // PIN 32, GPIO.26
 
 #define RASPI_D8   0 // PIN 11, GPIO.0
@@ -21,11 +21,18 @@
 #define RASPI_D5   4 // PIN 16, GPIO.4
 #define RASPI_D4  12 // PIN 19, MOSI
 #define RASPI_D3  13 // PIN 21, MISO
-#define RASPI_D2  10 // PIN 24, CE0
+#define RASPI_D2  11 // PIN 26, CE1
 #define RASPI_D1  24 // PIN 35, GPIO.24
 #define RASPI_D0  27 // PIN 36, GPIO.27
 #define RASPI_DIR 28 // PIN 38, GPIO.28
 #define RASPI_CLK 29 // PIN 40, GPIO.29
+
+#if 0 // Alpha board
+#undef RPI_ICE_CS
+#define RPI_ICE_CS 11 // PIN 26, CE1
+#undef RASPI_D2
+#define RASPI_D2 10 // PIN 24, CE0
+#endif
 
 bool verbose = false;
 char current_send_recv_mode = 0;
