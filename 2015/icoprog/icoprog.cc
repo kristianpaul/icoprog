@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <wiringPi.h>
+#include <vector>
 
 #define RPI_ICE_CLK      7 // PIN  7, GPIO.7
 #define RPI_ICE_CDONE    2 // PIN 13, GPIO.2
@@ -91,6 +92,203 @@ void prog_bitstream(bool reset_only = false)
 
 	usleep(2000);
 	fprintf(stderr, "cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
+}
+
+void spi_begin()
+{
+	digitalWrite(RPI_ICE_CS, LOW);
+	// fprintf(stderr, "SPI_BEGIN\n");
+}
+
+void spi_end()
+{
+	digitalWrite(RPI_ICE_CS, HIGH);
+	// fprintf(stderr, "SPI_END\n");
+}
+
+uint32_t spi_xfer(uint32_t data, int nbits = 8)
+{
+	uint32_t rdata = 0;
+
+	for (int i = nbits-1; i >= 0; i--)
+	{
+		digitalWrite(RPI_ICE_MOSI, (data & (1 << i)) ? HIGH : LOW);
+
+		if (digitalRead(RPI_ICE_MISO) == HIGH)
+			rdata |= 1 << i;
+
+		digitalWrite(RPI_ICE_CLK, HIGH);
+
+		digitalWrite(RPI_ICE_CLK, LOW);
+	}
+
+	// fprintf(stderr, "SPI:%d %02x %02x\n", nbits, data, rdata);
+
+	return rdata;
+}
+
+void flash_write_enable()
+{
+	spi_begin();
+	spi_xfer(0x06);
+	spi_end();
+}
+
+void flash_erase_64kB(int addr)
+{
+	spi_begin();
+	spi_xfer(0xd8);
+	spi_xfer(addr >> 16);
+	spi_xfer(addr >> 8);
+	spi_xfer(addr);
+	spi_end();
+}
+
+void flash_write(int addr, uint8_t *data, int n)
+{
+	spi_begin();
+	spi_xfer(0x02);
+	spi_xfer(addr >> 16);
+	spi_xfer(addr >> 8);
+	spi_xfer(addr);
+	while (n--)
+		spi_xfer(*(data++));
+	spi_end();
+}
+
+void flash_read(int addr, uint8_t *data, int n)
+{
+	spi_begin();
+	spi_xfer(0x03);
+	spi_xfer(addr >> 16);
+	spi_xfer(addr >> 8);
+	spi_xfer(addr);
+	while (n--)
+		*(data++) = spi_xfer(0);
+	spi_end();
+}
+
+void flash_wait()
+{
+	while (1)
+	{
+		spi_begin();
+		spi_xfer(0x05);
+		int status = spi_xfer(0);
+		spi_end();
+
+		if ((status & 0x01) == 0)
+			break;
+
+		usleep(250000);
+	}
+}
+
+void prog_flashmem()
+{
+	pinMode(RPI_ICE_CLK,     OUTPUT);
+	pinMode(RPI_ICE_MOSI,    OUTPUT);
+	pinMode(LOAD_FROM_FLASH, OUTPUT);
+	pinMode(RPI_ICE_CS,      OUTPUT);
+	pinMode(RPI_ICE_SELECT,  OUTPUT);
+
+	// connect flash to Raspi
+	digitalWrite(LOAD_FROM_FLASH, LOW);
+	digitalWrite(RPI_ICE_SELECT, HIGH);
+	digitalWrite(RPI_ICE_CS, HIGH);
+	digitalWrite(RPI_ICE_CLK, LOW);
+	usleep(100);
+
+	// power_up
+	spi_begin();
+	spi_xfer(0xab);
+	spi_end();
+
+	// read flash id
+	spi_begin();
+	spi_xfer(0x9f);
+	fprintf(stderr, "flash id:");
+	for (int i = 0; i < 20; i++)
+		fprintf(stderr, " %02x", spi_xfer(0x00));
+	fprintf(stderr, "\n");
+	spi_end();
+
+	// load prog data into buffer
+	std::vector<uint8_t> prog_data;
+	while (1) {
+		int byte = getchar();
+		if (byte < 0)
+			break;
+		prog_data.push_back(byte);
+	}
+
+	// erase flash
+	for (int addr = 0; addr < int(prog_data.size()); addr += 0x10000) {
+		fprintf(stderr, "erase 64kB sector at 0x%06X..\n", addr);
+		flash_write_enable();
+		flash_erase_64kB(addr);
+		flash_wait();
+	}
+
+	// programming
+	fprintf(stderr, "writing %.2fkB..\n", double(prog_data.size()) / 1024);
+	for (int addr = 0; addr < int(prog_data.size()); addr += 256) {
+		fprintf(stderr, "x");
+		if (addr+256 >= int(prog_data.size()))
+			fprintf(stderr, "%*s 100%%\n", (32 - ((addr+256) % (32*256)) / 256) % 32, "");
+		if ((addr+256) % (32*256) == 0)
+			fprintf(stderr, " %3d%%\n", 100*addr/int(prog_data.size()));
+		flash_write_enable();
+		flash_write(addr, &prog_data[addr], std::min(256, int(prog_data.size()) - addr));
+		flash_wait();
+	}
+
+	// power_down
+	spi_begin();
+	spi_xfer(0xb9);
+	spi_end();
+}
+
+void read_flashmem(int n)
+{
+	pinMode(RPI_ICE_CLK,     OUTPUT);
+	pinMode(RPI_ICE_MOSI,    OUTPUT);
+	pinMode(LOAD_FROM_FLASH, OUTPUT);
+	pinMode(RPI_ICE_CS,      OUTPUT);
+	pinMode(RPI_ICE_SELECT,  OUTPUT);
+
+	// connect flash to Raspi
+	digitalWrite(LOAD_FROM_FLASH, LOW);
+	digitalWrite(RPI_ICE_SELECT, HIGH);
+	digitalWrite(RPI_ICE_CS, HIGH);
+	digitalWrite(RPI_ICE_CLK, LOW);
+	usleep(100);
+
+	// power_up
+	spi_begin();
+	spi_xfer(0xab);
+	spi_end();
+
+	// read flash id
+	spi_begin();
+	spi_xfer(0x9f);
+	fprintf(stderr, "flash id:");
+	for (int i = 0; i < 20; i++)
+		fprintf(stderr, " %02x", spi_xfer(0x00));
+	fprintf(stderr, "\n");
+	spi_end();
+
+	fprintf(stderr, "reading %.2fkB..\n", double(n) / 1024);
+	for (int addr = 0; addr < n; addr += 256) {
+		uint8_t buffer[256];
+		flash_read(addr, buffer, std::min(256, n - addr));
+		fwrite(buffer, std::min(256, n - addr), 1, stdout);
+	}
+
+	// power_down
+	spi_begin();
+	spi_xfer(0xb9);
+	spi_end();
 }
 
 void epsilon_sleep()
@@ -367,6 +565,12 @@ void help(const char *progname)
 	fprintf(stderr, "Programming FPGA bit stream:\n");
 	fprintf(stderr, "    %s -p < data.bin\n", progname);
 	fprintf(stderr, "\n");
+	fprintf(stderr, "Programming serial flash:\n");
+	fprintf(stderr, "    %s -f < data.bin\n", progname);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Reading serial flash (first N bytes):\n");
+	fprintf(stderr, "    %s -F N > data.bin\n", progname);
+	fprintf(stderr, "\n");
 	fprintf(stderr, "Testing bit-parallel link (using ep0):\n");
 	fprintf(stderr, "    %s -T\n", progname);
 	fprintf(stderr, "\n");
@@ -391,18 +595,20 @@ int main(int argc, char **argv)
 	int opt, n = -1, t = -1;
 	char mode = 0;
 
-	while ((opt = getopt(argc, argv, "RpTw:r:vt:V:")) != -1)
+	while ((opt = getopt(argc, argv, "RpfF:Tw:r:vt:V:")) != -1)
 	{
 		switch (opt)
 		{
 		case 'w':
 		case 'r':
 		case 'V':
+		case 'F':
 			n = atoi(optarg);
 			// fall through
 
 		case 'R':
 		case 'p':
+		case 'f':
 		case 'T':
 			if (mode)
 				help(argv[0]);
@@ -436,6 +642,20 @@ int main(int argc, char **argv)
 		wiringPiSetup();
 		reset_inout();
 		prog_bitstream();
+		reset_inout();
+	}
+
+	if (mode == 'f') {
+		wiringPiSetup();
+		reset_inout();
+		prog_flashmem();
+		reset_inout();
+	}
+
+	if (mode == 'F') {
+		wiringPiSetup();
+		reset_inout();
+		read_flashmem(n);
 		reset_inout();
 	}
 
