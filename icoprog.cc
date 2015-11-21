@@ -39,6 +39,14 @@ bool verbose = false;
 char current_send_recv_mode = 0;
 int current_recv_ep = -1;
 
+void fpga_reset()
+{
+	pinMode(RPI_ICE_CRESET,  OUTPUT);
+	digitalWrite(RPI_ICE_CRESET, LOW);
+	usleep(2000);
+	digitalWrite(RPI_ICE_CRESET, HIGH);
+}
+
 void prog_bitstream(bool reset_only = false)
 {
 	pinMode(RPI_ICE_CLK,     OUTPUT);
@@ -232,15 +240,29 @@ void prog_flashmem()
 
 	// programming
 	fprintf(stderr, "writing %.2fkB..\n", double(prog_data.size()) / 1024);
-	for (int addr = 0; addr < int(prog_data.size()); addr += 256) {
-		fprintf(stderr, "x");
+	for (int addr = 0; addr < int(prog_data.size()); addr += 256)
+	{
+		int n = std::min(256, int(prog_data.size()) - addr);
+		uint8_t buffer[256];
+
+	retry:
+		flash_write_enable();
+		flash_write(addr, &prog_data[addr], n);
+		flash_wait();
+
+		flash_read(addr, buffer, n);
+
+		if (!memcmp(buffer, &prog_data[addr], n))
+			fprintf(stderr, "o");
+		else {
+			fprintf(stderr, "X");
+			goto retry;
+		}
+
 		if (addr+256 >= int(prog_data.size()))
 			fprintf(stderr, "%*s 100%%\n", (32 - ((addr+256) % (32*256)) / 256) % 32, "");
-		if ((addr+256) % (32*256) == 0)
+		else if ((addr+256) % (32*256) == 0)
 			fprintf(stderr, " %3d%%\n", 100*addr/int(prog_data.size()));
-		flash_write_enable();
-		flash_write(addr, &prog_data[addr], std::min(256, int(prog_data.size()) - addr));
-		flash_wait();
 	}
 
 	// power_down
@@ -562,6 +584,9 @@ void help(const char *progname)
 	fprintf(stderr, "Resetting FPGA:\n");
 	fprintf(stderr, "    %s -R\n", progname);
 	fprintf(stderr, "\n");
+	fprintf(stderr, "Resetting FPGA (reload from flash):\n");
+	fprintf(stderr, "    %s -b\n", progname);
+	fprintf(stderr, "\n");
 	fprintf(stderr, "Programming FPGA bit stream:\n");
 	fprintf(stderr, "    %s -p < data.bin\n", progname);
 	fprintf(stderr, "\n");
@@ -595,7 +620,7 @@ int main(int argc, char **argv)
 	int opt, n = -1, t = -1;
 	char mode = 0;
 
-	while ((opt = getopt(argc, argv, "RpfF:Tw:r:vt:V:")) != -1)
+	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:vt:V:")) != -1)
 	{
 		switch (opt)
 		{
@@ -607,6 +632,7 @@ int main(int argc, char **argv)
 			// fall through
 
 		case 'R':
+		case 'b':
 		case 'p':
 		case 'f':
 		case 'T':
@@ -635,6 +661,13 @@ int main(int argc, char **argv)
 		wiringPiSetup();
 		reset_inout();
 		prog_bitstream(true);
+		reset_inout();
+	}
+
+	if (mode == 'b') {
+		wiringPiSetup();
+		reset_inout();
+		fpga_reset();
 		reset_inout();
 	}
 	
