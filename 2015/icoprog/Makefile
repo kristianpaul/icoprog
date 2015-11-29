@@ -1,6 +1,6 @@
 
 icoprog: icoprog.cc
-	gcc -o icoprog -Wall -Os icoprog.cc -lwiringPi -lstdc++
+	gcc -o icoprog -Wall -Os icoprog.cc -lwiringPi -lrt -lstdc++
 
 test: icoprog
 	sudo ./icoprog < example.bin
