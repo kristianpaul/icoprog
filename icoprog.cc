@@ -47,6 +47,24 @@ void fpga_reset()
 	digitalWrite(RPI_ICE_CRESET, HIGH);
 }
 
+int get_time_ms()
+{
+	static struct timespec spec_start;
+	static bool spec_start_initialized = false;
+
+	struct timespec spec_now;
+	clock_gettime(CLOCK_REALTIME, &spec_now);
+	if (!spec_start_initialized) {
+		spec_start = spec_now;
+		spec_start_initialized = true;
+	}
+
+	int s = spec_now.tv_sec - spec_start.tv_sec;
+	int ns = spec_now.tv_nsec - spec_start.tv_nsec;
+
+	return s*1000 + ns/1000000;
+}
+
 void prog_bitstream(bool reset_only = false)
 {
 	pinMode(RPI_ICE_CLK,     OUTPUT);
@@ -99,7 +117,11 @@ void prog_bitstream(bool reset_only = false)
 	}
 
 	usleep(2000);
-	fprintf(stderr, "cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
+	for (int i = 2; i <= 512; i+=2) {
+		usleep(2000);
+		if (((i-1) & i) == 0)
+			fprintf(stderr, "cdone (after %3d ms): %s\n", i, digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
+	}
 }
 
 void spi_begin()
@@ -230,13 +252,20 @@ void prog_flashmem()
 		prog_data.push_back(byte);
 	}
 
+	int ms_timer = 0;
+
 	// erase flash
 	for (int addr = 0; addr < int(prog_data.size()); addr += 0x10000) {
 		fprintf(stderr, "erase 64kB sector at 0x%06X..\n", addr);
 		flash_write_enable();
 		flash_erase_64kB(addr);
+		int ms_start = get_time_ms();
 		flash_wait();
+		ms_timer += get_time_ms() - ms_start;
 	}
+
+	fprintf(stderr, "total erase wait time: %d ms\n", ms_timer);
+	ms_timer = 0;
 
 	// programming
 	fprintf(stderr, "writing %.2fkB..\n", double(prog_data.size()) / 1024);
@@ -248,7 +277,9 @@ void prog_flashmem()
 	retry:
 		flash_write_enable();
 		flash_write(addr, &prog_data[addr], n);
+		int ms_start = get_time_ms();
 		flash_wait();
+		ms_timer += get_time_ms() - ms_start;
 
 		flash_read(addr, buffer, n);
 
@@ -264,6 +295,8 @@ void prog_flashmem()
 		else if ((addr+256) % (32*256) == 0)
 			fprintf(stderr, " %3d%%\n", 100*addr/int(prog_data.size()));
 	}
+
+	fprintf(stderr, "total write wait time: %d ms\n", ms_timer);
 
 	// power_down
 	spi_begin();
