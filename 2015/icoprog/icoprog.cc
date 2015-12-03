@@ -29,13 +29,6 @@
 #define RASPI_DIR 28 // PIN 38, GPIO.28
 #define RASPI_CLK 29 // PIN 40, GPIO.29
 
-#if 0 // Alpha board
-#undef RPI_ICE_CS
-#define RPI_ICE_CS 11 // PIN 26, CE1
-#undef RASPI_D2
-#define RASPI_D2 10 // PIN 24, CE0
-#endif
-
 bool verbose = false;
 char current_send_recv_mode = 0;
 int current_recv_ep = -1;
