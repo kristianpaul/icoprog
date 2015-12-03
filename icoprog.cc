@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <termios.h>
 #include <wiringPi.h>
 #include <vector>
 
@@ -544,6 +545,66 @@ void read_endpoint(int epnum, int trignum)
 	link_sync();
 }
 
+void console_endpoint(int epnum, int trignum)
+{
+	struct termios oldkey_stdin, oldkey_stdout, newkey;
+
+	link_sync(trignum);
+
+	tcgetattr(STDIN_FILENO, &oldkey_stdin);
+	tcgetattr(STDOUT_FILENO, &oldkey_stdout);
+	memset(&newkey, 0, sizeof(newkey));
+	newkey.c_cflag = B9600 | CRTSCTS | CS8 | CLOCAL | CREAD;
+	newkey.c_iflag = IGNPAR;
+	newkey.c_oflag = 0;
+	newkey.c_lflag = 0;
+	newkey.c_cc[VMIN]=1;
+	newkey.c_cc[VTIME]=0;
+	tcflush(STDIN_FILENO, TCIFLUSH);
+	tcflush(STDOUT_FILENO, TCIFLUSH);
+	tcsetattr(STDIN_FILENO, TCSANOW, &newkey);
+	tcsetattr(STDOUT_FILENO, TCSANOW, &newkey);
+
+	while (1)
+	{
+		struct timeval timeout = { 0, 100000 };
+		int max_fd = STDIN_FILENO+1;
+		fd_set fds;
+
+		FD_ZERO(&fds);
+		FD_SET(STDIN_FILENO, &fds);
+
+		int ret = select(max_fd, &fds, NULL, NULL, &timeout);
+
+		if (ret > 0) {
+			char ch = 0;
+			read(STDIN_FILENO, &ch, 1);
+			if (ch == 3) break;
+			send_word(0x100 + epnum);
+			send_word(ch);
+			continue;
+		}
+
+		while (1) {
+			int v = recv_word();
+			if (v == 0x1ff || v == 0x1fe)
+				break;
+			if (current_recv_ep == epnum) {
+				char ch = v;
+				if (ch == '\n')
+					write(STDOUT_FILENO, "\r", 1);
+				write(STDOUT_FILENO, &ch, 1);
+			}
+		}
+	}
+
+	tcsetattr(STDIN_FILENO, TCSANOW, &oldkey_stdin);
+	tcsetattr(STDOUT_FILENO, TCSANOW, &oldkey_stdout);
+
+	write(STDOUT_FILENO, "\n", 1);
+	link_sync();
+}
+
 void read_dbgvcd(int nbits)
 {
 	link_sync(1);
@@ -638,13 +699,16 @@ void help(const char *progname)
 	fprintf(stderr, "Reading a file from ep N:\n");
 	fprintf(stderr, "    %s -r N > data.bin\n", progname);
 	fprintf(stderr, "\n");
+	fprintf(stderr, "Console at ep N:\n");
+	fprintf(stderr, "    %s -c N\n", progname);
+	fprintf(stderr, "\n");
 	fprintf(stderr, "Dumping a VCD file (from ep1, using trig1)\n");
-	fprintf(stderr, "  with a debugger core with N bits width:\n");
+	fprintf(stderr, "  with a debug core with N bits width:\n");
 	fprintf(stderr, "    %s -V N > dbg_trace.vcd\n", progname);
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Additional options:\n");
 	fprintf(stderr, "    -v      verbose output\n");
-	fprintf(stderr, "    -t N    send trigger N before -w/-r\n");
+	fprintf(stderr, "    -t N    send trigger N before -w/-r/-c\n");
 	exit(1);
 }
 
@@ -653,12 +717,13 @@ int main(int argc, char **argv)
 	int opt, n = -1, t = -1;
 	char mode = 0;
 
-	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:vt:V:")) != -1)
+	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:c:vt:V:")) != -1)
 	{
 		switch (opt)
 		{
 		case 'w':
 		case 'r':
+		case 'c':
 		case 'V':
 		case 'F':
 			n = atoi(optarg);
@@ -743,6 +808,13 @@ int main(int argc, char **argv)
 		wiringPiSetup();
 		reset_inout();
 		read_endpoint(n, t);
+		reset_inout();
+	}
+
+	if (mode == 'c') {
+		wiringPiSetup();
+		reset_inout();
+		console_endpoint(n, t);
 		reset_inout();
 	}
 
