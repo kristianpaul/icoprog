@@ -33,6 +33,9 @@ bool verbose = false;
 char current_send_recv_mode = 0;
 int current_recv_ep = -1;
 
+int last_recv_v = -1;
+int last_recv_rep = 0;
+
 void fpga_reset()
 {
 	pinMode(RPI_ICE_CRESET,  OUTPUT);
@@ -111,11 +114,15 @@ void prog_bitstream(bool reset_only = false)
 	}
 
 	usleep(2000);
+#if 0
 	for (int i = 2; i <= 512; i+=2) {
 		usleep(2000);
 		if (((i-1) & i) == 0)
 			fprintf(stderr, "cdone (after %3d ms): %s\n", i, digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
 	}
+#else
+	fprintf(stderr, "cdone: %s\n", digitalRead(RPI_ICE_CDONE) == HIGH ? "high" : "low");
+#endif
 }
 
 void spi_begin()
@@ -367,6 +374,8 @@ void send_word(int v)
 	}
 
 	if (verbose) {
+		last_recv_v = -1;
+		last_recv_rep = 0;
 		fprintf(stderr, "<%03x>", v);
 		fflush(stderr);
 	}
@@ -426,9 +435,24 @@ int recv_word(int timeout = 0)
 	digitalWrite(RASPI_CLK, LOW);
 	epsilon_sleep();
 
-	if (verbose) {
-		fprintf(stderr, "[%03x]", v);
-		fflush(stderr);
+	if (verbose)
+	{
+		if (v != last_recv_v) {
+			last_recv_v = v;
+			last_recv_rep = 0;
+		} else {
+			last_recv_rep++;
+		}
+
+		if ((v == 0x1ff || v == 0x1fe) && last_recv_rep > 0) {
+			if (last_recv_rep == 1) {
+				fprintf(stderr, "[..]");
+				fflush(stderr);
+			}
+		} else {
+			fprintf(stderr, "[%03x]", v);
+			fflush(stderr);
+		}
 	}
 
 	if (v >= 0x100)
@@ -591,7 +615,7 @@ void console_endpoint(int epnum, int trignum)
 			int v = recv_word();
 			if (v == 0x1ff || v == 0x1fe)
 				break;
-			if (current_recv_ep == epnum) {
+			if (current_recv_ep == epnum && v < 0x100) {
 				char ch = v;
 				if (ch == '\n')
 					write(STDOUT_FILENO, "\r", 1);
@@ -826,6 +850,9 @@ int main(int argc, char **argv)
 		read_dbgvcd(n);
 		reset_inout();
 	}
+
+	if (verbose)
+		fprintf(stderr, "\n");
 
 	return 0;
 }
