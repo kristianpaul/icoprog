@@ -444,13 +444,17 @@ int recv_word(int timeout = 0)
 			last_recv_rep++;
 		}
 
-		if ((v == 0x1ff || v == 0x1fe) && last_recv_rep > 0) {
+		if ((v == 0x1fe || v == 0x1ff) && last_recv_rep > 0) {
 			if (last_recv_rep == 1) {
-				fprintf(stderr, "[..]");
+				fprintf(stderr, "[%03x..]", v);
+				if (v == 0x1ff)
+					fprintf(stderr, "\r\n");
 				fflush(stderr);
 			}
 		} else {
 			fprintf(stderr, "[%03x]", v);
+			if (v == 0x1ff)
+				fprintf(stderr, "\r\n");
 			fflush(stderr);
 		}
 	}
@@ -536,12 +540,15 @@ void write_endpoint(int epnum, int trignum)
 	link_sync(trignum);
 	send_word(0x100 + epnum);
 
-	while (1)
+	for (int i = 0;; i++)
 	{
 		int byte = getchar();
 		if (byte < 0 || 255 < byte)
 			break;
 		send_word(byte);
+
+		if (i % 128 == 127)
+			while (recv_word() != 0x1ff) { }
 	}
 
 	link_sync();
@@ -571,9 +578,9 @@ void console_endpoint(int epnum, int trignum)
 	tcgetattr(STDIN_FILENO, &oldkey_stdin);
 	tcgetattr(STDOUT_FILENO, &oldkey_stdout);
 	memset(&newkey, 0, sizeof(newkey));
-	newkey.c_cflag = B9600 | CRTSCTS | CS8 | CLOCAL | CREAD;
+	newkey.c_cflag = B9600 | CS8 | CLOCAL | CREAD;
 	newkey.c_iflag = IGNPAR;
-	newkey.c_oflag = 0;
+	newkey.c_oflag = ONLCR;
 	newkey.c_lflag = 0;
 	newkey.c_cc[VMIN]=1;
 	newkey.c_cc[VTIME]=0;
@@ -586,7 +593,7 @@ void console_endpoint(int epnum, int trignum)
 
 	while (running)
 	{
-		struct timeval timeout = { 0, 100000 };
+		struct timeval timeout = { 0, 10000 };
 		int max_fd = STDIN_FILENO+1;
 		fd_set fds;
 
@@ -603,7 +610,7 @@ void console_endpoint(int epnum, int trignum)
 			ret = read(STDIN_FILENO, &ch, 1);
 			if (ret == 0 || ch == 3) {
 				running = false;
-				usleep(100000);
+				usleep(10000);
 			} else {
 				send_word(0x100 + epnum);
 				send_word(ch);
@@ -627,7 +634,6 @@ void console_endpoint(int epnum, int trignum)
 	tcsetattr(STDIN_FILENO, TCSANOW, &oldkey_stdin);
 	tcsetattr(STDOUT_FILENO, TCSANOW, &oldkey_stdout);
 
-	write(STDOUT_FILENO, "\n", 1);
 	link_sync();
 }
 
