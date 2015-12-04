@@ -558,7 +558,9 @@ void console_endpoint(int epnum, int trignum)
 	tcsetattr(STDIN_FILENO, TCSANOW, &newkey);
 	tcsetattr(STDOUT_FILENO, TCSANOW, &newkey);
 
-	while (1)
+	bool running = true;
+
+	while (running)
 	{
 		struct timeval timeout = { 0, 100000 };
 		int max_fd = STDIN_FILENO+1;
@@ -569,13 +571,20 @@ void console_endpoint(int epnum, int trignum)
 
 		int ret = select(max_fd, &fds, NULL, NULL, &timeout);
 
+		if (ret < 0)
+			break;
+
 		if (ret > 0) {
 			char ch = 0;
-			read(STDIN_FILENO, &ch, 1);
-			if (ch == 3) break;
-			send_word(0x100 + epnum);
-			send_word(ch);
-			continue;
+			ret = read(STDIN_FILENO, &ch, 1);
+			if (ret == 0 || ch == 3) {
+				running = false;
+				usleep(100000);
+			} else {
+				send_word(0x100 + epnum);
+				send_word(ch);
+				continue;
+			}
 		}
 
 		while (1) {
