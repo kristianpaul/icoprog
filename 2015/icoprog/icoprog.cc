@@ -200,8 +200,10 @@ void flash_read(int addr, uint8_t *data, int n)
 	spi_end();
 }
 
-void flash_wait()
+int flash_wait()
 {
+	int ms_start = get_time_ms();
+
 	while (1)
 	{
 		spi_begin();
@@ -214,6 +216,8 @@ void flash_wait()
 
 		usleep(250000);
 	}
+
+	return get_time_ms() - ms_start;
 }
 
 void prog_flashmem()
@@ -255,50 +259,51 @@ void prog_flashmem()
 	}
 
 	int ms_timer = 0;
+	fprintf(stderr, "writing %.2fkB..", double(prog_data.size()) / 1024);
 
-	// erase flash
-	for (int addr = 0; addr < int(prog_data.size()); addr += 0x10000) {
-		fprintf(stderr, "erase 64kB sector at 0x%06X..\n", addr);
-		flash_write_enable();
-		flash_erase_64kB(addr);
-		int ms_start = get_time_ms();
-		flash_wait();
-		ms_timer += get_time_ms() - ms_start;
-	}
-
-	fprintf(stderr, "total erase wait time: %d ms\n", ms_timer);
-	ms_timer = 0;
-
-	// programming
-	fprintf(stderr, "writing %.2fkB..\n", double(prog_data.size()) / 1024);
 	for (int addr = 0; addr < int(prog_data.size()); addr += 256)
 	{
+		if (addr % (64*1024) == 0)
+		{
+			fprintf(stderr, "\n%3d%% @%06x ", 100*addr/int(prog_data.size()), addr);
+			fprintf(stderr, "erasing 64kB sector..");
+
+			flash_write_enable();
+			flash_erase_64kB(addr);
+			ms_timer += flash_wait();
+		}
+
+		if (addr % (32*256) == 0) {
+			fprintf(stderr, "\n%3d%% @%06x writing: ", 100*addr/int(prog_data.size()), addr);
+		}
+
 		int n = std::min(256, int(prog_data.size()) - addr);
 		uint8_t buffer[256];
 
-	retry:
-		flash_write_enable();
-		flash_write(addr, &prog_data[addr], n);
-		int ms_start = get_time_ms();
-		flash_wait();
-		ms_timer += get_time_ms() - ms_start;
+		for (int retry_count = 0; retry_count < 10; retry_count++)
+		{
+			flash_write_enable();
+			flash_write(addr, &prog_data[addr], n);
+			ms_timer += flash_wait();
 
-		flash_read(addr, buffer, n);
+			flash_read(addr, buffer, n);
 
-		if (!memcmp(buffer, &prog_data[addr], n))
-			fprintf(stderr, "o");
-		else {
+			if (!memcmp(buffer, &prog_data[addr], n)) {
+				fprintf(stderr, "o");
+				goto written_ok;
+			}
+
 			fprintf(stderr, "X");
-			goto retry;
 		}
 
-		if (addr+256 >= int(prog_data.size()))
-			fprintf(stderr, "%*s 100%%\n", (32 - ((addr+256) % (32*256)) / 256) % 32, "");
-		else if ((addr+256) % (32*256) == 0)
-			fprintf(stderr, " %3d%%\n", 100*addr/int(prog_data.size()));
+		// restart erasing and writing this 64kB sector
+		addr -= addr % (64*1024);
+		addr -= 256;
+	
+	written_ok:;
 	}
 
-	fprintf(stderr, "total write wait time: %d ms\n", ms_timer);
+	fprintf(stderr, "\ntotal wait time: %d ms\n", ms_timer);
 
 	// power_down
 	spi_begin();
