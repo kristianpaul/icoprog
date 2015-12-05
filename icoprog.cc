@@ -303,7 +303,7 @@ void prog_flashmem()
 	written_ok:;
 	}
 
-	fprintf(stderr, "\ntotal wait time: %d ms\n", ms_timer);
+	fprintf(stderr, "\n100%% total wait time: %d ms\n", ms_timer);
 
 	// power_down
 	spi_begin();
