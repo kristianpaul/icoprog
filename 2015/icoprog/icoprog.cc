@@ -30,6 +30,7 @@
 #define RASPI_CLK 29 // PIN 40, GPIO.29
 
 bool verbose = false;
+bool send_zero = false;
 char current_send_recv_mode = 0;
 int current_recv_ep = -1;
 
@@ -551,6 +552,9 @@ void write_endpoint(int epnum, int trignum)
 			while (recv_word() != 0x1ff) { }
 	}
 
+	if (send_zero)
+		send_word(0);
+
 	link_sync();
 }
 
@@ -574,6 +578,7 @@ void console_endpoint(int epnum, int trignum)
 	struct termios oldkey_stdin, oldkey_stdout, newkey;
 
 	link_sync(trignum);
+	send_word(0x100 + epnum);
 
 	tcgetattr(STDIN_FILENO, &oldkey_stdin);
 	tcgetattr(STDOUT_FILENO, &oldkey_stdout);
@@ -590,6 +595,7 @@ void console_endpoint(int epnum, int trignum)
 	tcsetattr(STDOUT_FILENO, TCSANOW, &newkey);
 
 	bool running = true;
+	int wrcount = 0;
 
 	while (running)
 	{
@@ -610,17 +616,24 @@ void console_endpoint(int epnum, int trignum)
 			ret = read(STDIN_FILENO, &ch, 1);
 			if (ret == 0 || ch == 3) {
 				running = false;
+				if (send_zero)
+					send_word(ch);
 				usleep(10000);
 			} else {
-				send_word(0x100 + epnum);
+				wrcount++;
 				send_word(ch);
-				continue;
+				if (wrcount < 200)
+					continue;
 			}
 		}
 
 		while (1) {
 			int v = recv_word();
-			if (v == 0x1ff || v == 0x1fe)
+			if (v == 0x1ff) {
+				wrcount = 0;
+				break;
+			}
+			if (v == 0x1fe && wrcount < 100)
 				break;
 			if (current_recv_ep == epnum && v < 0x100) {
 				char ch = v;
@@ -740,7 +753,9 @@ void help(const char *progname)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Additional options:\n");
 	fprintf(stderr, "    -v      verbose output\n");
+	fprintf(stderr, "    -z      send a terminating zero byte with -w/-c\n");
 	fprintf(stderr, "    -t N    send trigger N before -w/-r/-c\n");
+	fprintf(stderr, "\n");
 	exit(1);
 }
 
@@ -749,7 +764,7 @@ int main(int argc, char **argv)
 	int opt, n = -1, t = -1;
 	char mode = 0;
 
-	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:c:vt:V:")) != -1)
+	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:c:vzt:V:")) != -1)
 	{
 		switch (opt)
 		{
@@ -773,6 +788,10 @@ int main(int argc, char **argv)
 
 		case 'v':
 			verbose = true;
+			break;
+
+		case 'z':
+			send_zero = true;
 			break;
 
 		case 't':
