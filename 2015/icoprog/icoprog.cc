@@ -632,19 +632,25 @@ void console_endpoint(int epnum, int trignum)
 			}
 		}
 
+		int stop_cnt = 0;
 		while (1) {
 			int v = recv_word();
-			if (v == 0x1ff) {
-				wrcount = 0;
+			if ((v == 0x1ff) || (v == 0x1fe && wrcount < 100)) {
+				if (v == 0x1ff)
+					wrcount = 0;
+				if (!running && stop_cnt < 10) {
+					stop_cnt++;
+					usleep(10000);
+					continue;
+				}
 				break;
 			}
-			if (v == 0x1fe && wrcount < 100)
-				break;
 			if (current_recv_ep == epnum && v < 0x100) {
 				char ch = v;
 				if (ch == '\n')
 					write(STDOUT_FILENO, "\r", 1);
 				write(STDOUT_FILENO, &ch, 1);
+				stop_cnt = 0;
 			}
 		}
 	}
