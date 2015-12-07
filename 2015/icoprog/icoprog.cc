@@ -665,6 +665,7 @@ void read_dbgvcd(int nbits)
 {
 	link_sync(1);
 
+	fprintf(stderr, "Waiting for trigger: ");
 	printf("$var event 1 ! clock $end\n");
 	for (int i = 0; i < nbits; i++)
 		printf("$var wire 1 n%d debug_%d $end\n", i, i);
@@ -673,13 +674,22 @@ void read_dbgvcd(int nbits)
 	int nbytes = (nbits+7) / 8;
 	int clock_cnt = 0;
 	int byte_cnt = 0;
+	bool waiting = true;
 
 	for (int timeout = 0; timeout < 1000; timeout++)
 	{
 		int byte = recv_word();
 
+		if (waiting)
+			timeout = 0;
+
 		if (current_recv_ep != 1 || byte >= 0x100)
 			continue;
+
+		if (waiting) {
+			fprintf(stderr, "Triggered.\n");
+			waiting = false;
+		}
 
 		if (byte_cnt == 0)
 			printf("#%d\n1!\n", clock_cnt);
@@ -695,6 +705,7 @@ void read_dbgvcd(int nbits)
 		timeout = 0;
 	}
 
+	fprintf(stderr, "Received %d cycles of debug data.\n", clock_cnt);
 	link_sync();
 }
 
