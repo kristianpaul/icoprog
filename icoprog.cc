@@ -214,7 +214,7 @@ int flash_wait()
 		if ((status & 0x01) == 0)
 			break;
 
-		usleep(250000);
+		usleep(1000);
 	}
 
 	return get_time_ms() - ms_start;
