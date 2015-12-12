@@ -31,6 +31,7 @@
 
 bool verbose = false;
 bool send_zero = false;
+bool recv_zero = false;
 char current_send_recv_mode = 0;
 int current_recv_ep = -1;
 
@@ -567,9 +568,11 @@ void read_endpoint(int epnum, int trignum)
 {
 	link_sync(trignum);
 
-	for (int timeout = 0; timeout < 1000; timeout++) {
+	for (int timeout = 0; timeout < 1000 || recv_zero; timeout++) {
 		int byte = recv_word();
 		if (current_recv_ep == epnum && byte < 0x100) {
+			if (recv_zero && byte == 0)
+				break;
 			putchar(byte);
 			timeout = 0;
 		}
@@ -643,10 +646,14 @@ void console_endpoint(int epnum, int trignum)
 					usleep(10000);
 					continue;
 				}
+				if (!running && recv_zero)
+					continue;
 				break;
 			}
 			if (current_recv_ep == epnum && v < 0x100) {
 				char ch = v;
+				if (recv_zero && ch == 0)
+					break;
 				if (ch == '\n')
 					write(STDOUT_FILENO, "\r", 1);
 				write(STDOUT_FILENO, &ch, 1);
@@ -776,6 +783,7 @@ void help(const char *progname)
 	fprintf(stderr, "Additional options:\n");
 	fprintf(stderr, "    -v      verbose output\n");
 	fprintf(stderr, "    -z      send a terminating zero byte with -w/-c\n");
+	fprintf(stderr, "    -Z      wait for terminating zero byte in -r/-c\n");
 	fprintf(stderr, "    -t N    send trigger N before -w/-r/-c\n");
 	fprintf(stderr, "\n");
 	exit(1);
@@ -786,7 +794,7 @@ int main(int argc, char **argv)
 	int opt, n = -1, t = -1;
 	char mode = 0;
 
-	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:c:vzt:V:")) != -1)
+	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:c:vzZt:V:")) != -1)
 	{
 		switch (opt)
 		{
@@ -814,6 +822,10 @@ int main(int argc, char **argv)
 
 		case 'z':
 			send_zero = true;
+			break;
+
+		case 'Z':
+			recv_zero = true;
 			break;
 
 		case 't':
