@@ -1,0 +1,136 @@
+
+      *********************************************************
+      * IcoProg -- Programmer and Debug Tool for the IcoBoard *
+      *********************************************************
+
+
+The IcoBoard is a Raspberry PI hat featuring the ICE40 HX8K fpga. It
+can be programmed using the IceStorm Open Source FPGA flow:
+
+http://icoboard.org/
+http://www.clifford.at/icestorm/
+
+
+Installing
+==========
+
+Start by installing a RASPBIAN JESSIE image on an SD-card. Follow the
+installation guide on the Raspberry PI web page:
+
+	https://www.raspberrypi.org/downloads/raspbian/
+
+Boot the Raspberry PI from the SD card. Open a console window or
+login to the Raspberry PI via ssh and execute the commands below
+to setup the IcoBoard environment.
+
+
+Expanding the root Filesystem
+-----------------------------
+
+Optionally expand the root filesystem to the entire SD card:
+
+	sudo raspi-config
+
+Select "Expand Filesystem" and reboot the Raspberry PI.
+
+
+Installing wiringPi
+-------------------
+
+IcoProg uses the wiringPi library. So we need to install it:
+
+	cd $HOME
+	git clone git://git.drogon.net/wiringPi
+	cd wiringPi && ./build
+
+
+Installing IcoProg
+------------------
+
+Next we install IcoProg itself:
+
+	cd $HOME
+	sudo apt-get install subversion
+	svn co http://svn.clifford.at/handicraft/2015/icoprog
+	cd icoprog && make install
+
+
+Installing the IceStorm Flow
+----------------------------
+
+If you want to generate FPGA bitstreams on the Raspberry PI directly, you
+also need to install the IceStorm flow: the IceStorm tools, Arachne-pnr,
+and Yosys.
+
+Installing Prerequisites:
+
+	sudo apt-get install build-essential clang bison flex libreadline-dev \
+	                     gawk tcl-dev libffi-dev git mercurial graphviz   \
+	                     xdot pkg-config python python3 libftdi-dev
+
+Installing IceStorm:
+
+	cd $HOME
+	git clone https://github.com/cliffordwolf/icestorm.git icestorm
+	cd icestorm && make && sudo make install
+
+Installing Arachne-pnr:
+
+	cd $HOME
+	git clone https://github.com/cseed/arachne-pnr.git arachne-pnr
+	cd arachne-pnr && make && sudo make install
+
+Installing Yosys:
+
+	cd $HOME
+	git clone https://github.com/cliffordwolf/yosys.git yosys
+	cd yosys && make && sudo make install
+
+
+Building and Running a Simple Example
+-------------------------------------
+
+The IcoProg package includes a small example design that blinks the LEDs on
+the IcoBoard:
+
+	cd $HOME/icoprog
+	make example
+
+
+Building and Running a Complex SoC Design
+-----------------------------------------
+
+The following SoC design uses the PicoRV32 RISC-V CPU core. In order to build
+it we first need to build a RISC-V compiler toolchain:
+
+	sudo apt-get install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev \
+	                     libgmp-dev gawk build-essential bison flex texinfo gperf
+
+	sudo mkdir /opt/riscv32i
+	sudo chown $USER /opt/riscv32i
+
+	cd $HOME
+	git clone https://github.com/riscv/riscv-gnu-toolchain riscv-gnu-toolchain-rv32i
+	cd riscv-gnu-toolchain-rv32i
+	git checkout c85720a
+	# apply https://github.com/riscv/riscv-gnu-toolchain/pull/109
+
+	mkdir build; cd build
+	../configure --with-xlen=32 --with-arch=I --prefix=/opt/riscv32i
+	make
+
+	echo 'export PATH="$PATH:/opt/riscv32i/bin"' >> $HOME/.bash_aliases
+	source $HOME/.bash_aliases
+
+Now we can build the FPGA bit-stream for the demo SoC and install it in the
+IcoBoard serial flash:
+
+	cd $HOME
+	svn co http://svn.clifford.at/handicraft/2015/c3demo
+	cd c3demo/fpga && make prog_flash
+
+Finally we can run a program on the SoC. For example counting prime numbers:
+
+	cd $HOME/c3demo/app_primes
+	make SSH_RASPI="sh -c" run
+
