@@ -112,8 +112,7 @@ it we first need to build a RISC-V compiler toolchain:
 	cd $HOME
 	git clone https://github.com/riscv/riscv-gnu-toolchain riscv-gnu-toolchain-rv32i
 	cd riscv-gnu-toolchain-rv32i
-	git checkout c85720a
-	# apply https://github.com/riscv/riscv-gnu-toolchain/pull/109
+	git checkout 4bcd4f5
 
 	mkdir build; cd build
 	../configure --with-xlen=32 --with-arch=I --prefix=/opt/riscv32i
@@ -127,7 +126,7 @@ IcoBoard serial flash:
 
 	cd $HOME
 	svn co http://svn.clifford.at/handicraft/2015/c3demo
-	cd c3demo/fpga && make prog_flash
+	cd c3demo/fpga && make SSH_RASPI="sh -c" prog_flash
 
 Finally we can run a program on the SoC. For example counting prime numbers:
 
