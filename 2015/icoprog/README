@@ -101,7 +101,8 @@ Building and Running a Complex SoC Design
 -----------------------------------------
 
 The following SoC design uses the PicoRV32 RISC-V CPU core. In order to build
-it we first need to build a RISC-V compiler toolchain:
+it we first need to build a RISC-V compiler toolchain (at least a 16 GB sd-card
+is needed to build the RISC-V toolchain):
 
 	sudo apt-get install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev \
 	                     libgmp-dev gawk build-essential bison flex texinfo gperf
