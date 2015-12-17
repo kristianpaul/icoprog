@@ -18,11 +18,15 @@ example_flash: icoprog example.bin
 	sudo ./icoprog -f < example.bin
 	sudo ./icoprog -b
 
+reset: icoprog
+	echo | sudo ./icoprog -f
+	sudo ./icoprog -b
+
 install: icoprog
 	sudo install icoprog /usr/local/bin/
 	sudo chmod u+s /usr/local/bin/icoprog
 clean:
 	rm -f icoprog example.blif example.txt example.bin
 
-.PHONY: example_sram example_flash install clean
+.PHONY: example_sram example_flash reset install clean
 
