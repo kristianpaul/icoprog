@@ -19,7 +19,7 @@ example_flash: icoprog example.bin
 	sudo ./icoprog -b
 
 reset: icoprog
-	echo | sudo ./icoprog -f
+	sudo ./icoprog -f < example.pcf
 	sudo ./icoprog -b
 
 install: icoprog
