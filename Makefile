@@ -11,8 +11,12 @@ example.txt: example.blif example.pcf
 example.bin: example.txt
 	icepack example.txt example.bin
 
-example: icoprog example.bin
+example_sram: icoprog example.bin
 	sudo ./icoprog -p < example.bin
+
+example_flash: icoprog example.bin
+	sudo ./icoprog -f < example.bin
+	sudo ./icoprog -b
 
 install: icoprog
 	sudo install icoprog /usr/local/bin/
@@ -20,5 +24,5 @@ install: icoprog
 clean:
 	rm -f icoprog example.blif example.txt example.bin
 
-.PHONY: example install clean
+.PHONY: example_sram example_flash install clean
 
