@@ -44,7 +44,7 @@ void fpga_reset()
 	digitalWrite(RPI_ICE_CRESET, LOW);
 	usleep(2000);
 	digitalWrite(RPI_ICE_CRESET, HIGH);
-	usleep(500000);
+	usleep(1000000);
 	if (digitalRead(RPI_ICE_CDONE) != HIGH)
 		fprintf(stderr, "Warning: cdone is low\n");
 }
