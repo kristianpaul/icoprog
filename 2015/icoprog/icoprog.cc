@@ -492,8 +492,6 @@ void link_sync(int trignum = -1)
 
 	if (trignum >= 0)
 		send_word(trignum);
-
-	while (recv_word() == 0x1fe) { }
 }
 
 void test_link()
