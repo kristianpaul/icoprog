@@ -127,10 +127,10 @@ IcoBoard serial flash:
 
 	cd $HOME
 	svn co http://svn.clifford.at/handicraft/2015/c3demo
-	cd c3demo/fpga && make SSH_RASPI="sh -c" prog_flash
+	cd c3demo/fpga && make prog_flash
 
 Finally we can run a program on the SoC. For example counting prime numbers:
 
 	cd $HOME/c3demo/app_primes
-	make SSH_RASPI="sh -c" run
+	make run
 
