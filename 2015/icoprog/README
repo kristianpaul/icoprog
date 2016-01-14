@@ -94,7 +94,7 @@ The IcoProg package includes a small example design that blinks the LEDs on
 the IcoBoard:
 
 	cd $HOME/icoprog
-	make example
+	make example_sram
 
 
 Building and Running a Complex SoC Design
