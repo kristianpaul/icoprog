@@ -224,7 +224,7 @@ int flash_wait()
 	return get_time_ms() - ms_start;
 }
 
-void prog_flashmem()
+void prog_flashmem(int pageoffset)
 {
 	pinMode(RPI_ICE_CLK,     OUTPUT);
 	pinMode(RPI_ICE_MOSI,    OUTPUT);
@@ -273,7 +273,7 @@ void prog_flashmem()
 			fprintf(stderr, "erasing 64kB sector..");
 
 			flash_write_enable();
-			flash_erase_64kB(addr);
+			flash_erase_64kB(addr + pageoffset * 0x10000);
 			ms_timer += flash_wait();
 		}
 
@@ -287,10 +287,10 @@ void prog_flashmem()
 		for (int retry_count = 0; retry_count < 10; retry_count++)
 		{
 			flash_write_enable();
-			flash_write(addr, &prog_data[addr], n);
+			flash_write(addr + pageoffset * 0x10000, &prog_data[addr], n);
 			ms_timer += flash_wait();
 
-			flash_read(addr, buffer, n);
+			flash_read(addr + pageoffset * 0x10000, buffer, n);
 
 			if (!memcmp(buffer, &prog_data[addr], n)) {
 				fprintf(stderr, "o");
@@ -785,6 +785,7 @@ void help(const char *progname)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Additional options:\n");
 	fprintf(stderr, "    -v      verbose output\n");
+	fprintf(stderr, "    -O N    offset (in 64 kB pages) for -f\n");
 	fprintf(stderr, "    -z      send a terminating zero byte with -w/-c\n");
 	fprintf(stderr, "    -Z      wait for terminating zero byte in -r/-c\n");
 	fprintf(stderr, "    -t N    send trigger N before -w/-r/-c\n");
@@ -795,9 +796,10 @@ void help(const char *progname)
 int main(int argc, char **argv)
 {
 	int opt, n = -1, t = -1;
+	int pageoffset = 0;
 	char mode = 0;
 
-	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:c:vzZt:V:")) != -1)
+	while ((opt = getopt(argc, argv, "RbpfF:Tw:r:c:vzZt:O:V:")) != -1)
 	{
 		switch (opt)
 		{
@@ -835,6 +837,10 @@ int main(int argc, char **argv)
 			t = atoi(optarg);
 			break;
 
+		case 'O':
+			pageoffset = atoi(optarg);
+			break;
+
 		default:
 			help(argv[0]);
 		}
@@ -867,7 +873,7 @@ int main(int argc, char **argv)
 	if (mode == 'f') {
 		wiringPiSetup();
 		reset_inout();
-		prog_flashmem();
+		prog_flashmem(pageoffset);
 		reset_inout();
 	}
 
